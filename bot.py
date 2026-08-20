@@ -20,8 +20,19 @@ import yt_dlp
 load_dotenv()
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+
 OWNER_TELEGRAM_ID = os.getenv("OWNER_TELEGRAM_ID")
-OWNER_TELEGRAM_ID = int(OWNER_TELEGRAM_ID) if OWNER_TELEGRAM_ID else None
+OWNER_TELEGRAM_ID = (
+    int(OWNER_TELEGRAM_ID)
+    if OWNER_TELEGRAM_ID
+    else None
+)
+
+# عنوان PO Token Provider الموجود على Railway
+POT_PROVIDER_URL = os.getenv(
+    "YTDLP_POT_PROVIDER_URL",
+    "http://bgutil-ytdlp-pot-provider.railway.internal:4416",
+)
 
 
 WORKING_MESSAGES = [
@@ -66,6 +77,7 @@ ERROR_MESSAGES = [
 def owner_only(update: Update) -> bool:
     if OWNER_TELEGRAM_ID is None:
         return True
+
     return bool(
         update.effective_user
         and update.effective_user.id == OWNER_TELEGRAM_ID
@@ -78,6 +90,7 @@ def extract_url(text: str):
 
 
 def download_mp3(url: str, workdir: Path) -> Path:
+
     outtmpl = str(
         workdir / "%(title).120s [%(id)s].%(ext)s"
     )
@@ -88,6 +101,17 @@ def download_mp3(url: str, workdir: Path) -> Path:
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+
+        # YouTube + PO Token Provider
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["mweb"],
+            },
+            "youtubepot-bgutilhttp": {
+                "base_url": [POT_PROVIDER_URL],
+            },
+        },
+
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -98,12 +122,23 @@ def download_mp3(url: str, workdir: Path) -> Path:
     }
 
     with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        prepared = Path(ydl.prepare_filename(info))
+
+        info = ydl.extract_info(
+            url,
+            download=True,
+        )
+
+        prepared = Path(
+            ydl.prepare_filename(info)
+        )
+
         mp3_path = prepared.with_suffix(".mp3")
 
     if not mp3_path.exists():
-        candidates = list(workdir.glob("*.mp3"))
+
+        candidates = list(
+            workdir.glob("*.mp3")
+        )
 
         if not candidates:
             raise FileNotFoundError(
@@ -117,10 +152,14 @@ def download_mp3(url: str, workdir: Path) -> Path:
 
 async def start(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
+
     if not owner_only(update):
-        await update.message.reply_text("هذا البوت خاص 😎")
+
+        await update.message.reply_text(
+            "هذا البوت خاص 😎"
+        )
         return
 
     await update.message.reply_text(
@@ -132,8 +171,9 @@ async def start(
 
 async def myid(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
+
     await update.message.reply_text(
         f"Telegram ID: {update.effective_user.id}"
     )
@@ -141,15 +181,22 @@ async def myid(
 
 async def handle_text(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
+
     if not owner_only(update):
-        await update.message.reply_text("هذا البوت خاص 😎")
+
+        await update.message.reply_text(
+            "هذا البوت خاص 😎"
+        )
         return
 
-    url = extract_url(update.message.text or "")
+    url = extract_url(
+        update.message.text or ""
+    )
 
     if not url:
+
         await update.message.reply_text(
             "وين الرابط يا زعيم؟ 😭\n"
             "ارمي رابط فيديو وخليني أشتغل."
@@ -161,9 +208,11 @@ async def handle_text(
     )
 
     try:
+
         with tempfile.TemporaryDirectory(
             prefix="tg_mp3_"
         ) as td:
+
             workdir = Path(td)
 
             mp3 = await asyncio.to_thread(
@@ -172,11 +221,13 @@ async def handle_text(
                 workdir,
             )
 
-            size_mb = mp3.stat().st_size / (
-                1024 * 1024
+            size_mb = (
+                mp3.stat().st_size
+                / (1024 * 1024)
             )
 
             if size_mb > 49:
+
                 await status.edit_text(
                     f"يا ساتر 😭 الملف طلع {size_mb:.1f}MB.\n"
                     "أكبر من اللي بقدر أبعثه حاليًا."
@@ -189,6 +240,7 @@ async def handle_text(
             )
 
             with mp3.open("rb") as audio:
+
                 await update.message.reply_audio(
                     audio=audio,
                     title=mp3.stem[:64],
@@ -197,20 +249,24 @@ async def handle_text(
 
         await status.delete()
 
-        # الرد العشوائي بعد كل تحويل ناجح
+        # رد عشوائي بعد كل أغنية
         await update.message.reply_text(
             random.choice(SUCCESS_MESSAGES)
         )
 
         # مفاجأة نادرة 😂
         if random.random() < 0.05:
+
             await update.message.reply_text(
                 "بالمناسبة… كم أغنية ناوي تنزّل؟ "
                 "أنا بس بسأل لأسباب نقابية."
             )
 
     except Exception as e:
-        funny_error = random.choice(ERROR_MESSAGES)
+
+        funny_error = random.choice(
+            ERROR_MESSAGES
+        )
 
         await status.edit_text(
             f"{funny_error}\n\n"
@@ -219,21 +275,31 @@ async def handle_text(
 
 
 def main():
+
     if shutil.which("ffmpeg") is None:
+
         raise RuntimeError(
             "FFmpeg غير مثبت على الخادم."
         )
 
-    app = Application.builder().token(
-        BOT_TOKEN
-    ).build()
-
-    app.add_handler(
-        CommandHandler("start", start)
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .build()
     )
 
     app.add_handler(
-        CommandHandler("myid", myid)
+        CommandHandler(
+            "start",
+            start,
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "myid",
+            myid,
+        )
     )
 
     app.add_handler(
@@ -244,6 +310,7 @@ def main():
     )
 
     print("صبحي الروبوت شغّال 😎")
+
     app.run_polling(
         allowed_updates=Update.ALL_TYPES
     )
