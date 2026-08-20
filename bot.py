@@ -3,11 +3,18 @@ import os
 import re
 import shutil
 import tempfile
+import random
 from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 import yt_dlp
 
 load_dotenv()
@@ -17,10 +24,52 @@ OWNER_TELEGRAM_ID = os.getenv("OWNER_TELEGRAM_ID")
 OWNER_TELEGRAM_ID = int(OWNER_TELEGRAM_ID) if OWNER_TELEGRAM_ID else None
 
 
+WORKING_MESSAGES = [
+    "ثواني… قاعد أعصر الفيديو عشان أطلعلك الصوت 😭",
+    "اصبر عليّ، مش شايفني بشتغل؟ 😂",
+    "جاري ارتكاب بعض الأمور التقنية… 🧑‍💻",
+    "دخل الرابط غرفة العمليات 🏥",
+    "استنى… الـFFmpeg قاعد يسخن 😂",
+    "جاري تحويل ذوقك الموسيقي إلى ملف قابل للحفظ 🎧",
+    "ثواني بس، السيرفر عنده مشاعر برضو.",
+    "بفكك الفيديو قطعة قطعة… هو تحت التخدير.",
+]
+
+SUCCESS_MESSAGES = [
+    "في كمان أغاني؟ 👀",
+    "خلصت هاي، هات المصيبة اللي بعدها 😂",
+    "تم يا زعيم. مين الضحية الجاية؟",
+    "هات اللي بعدها… واضح السهرة مطوّلة 🎧",
+    "MP3 جاهز. رأيي بالأغنية احتفظت فيه لنفسي احترامًا لمشاعرك.",
+    "خلصت. لا تقلي عندك Playlist كاملة 💀",
+    "تمت المهمة بنجاح. إنجاز آخر يُحسب للحضارة البشرية.",
+    "هات رابط ثاني، السيرفر دافع حقه.",
+    "واحدة راحت… كم باقي عندك يا طمّاع؟ 😭",
+    "تم 🫡 صبحي الروبوت لا يسأل لماذا، صبحي الروبوت ينفّذ.",
+    "خلصت يا DJ، شو التالية؟",
+    "جاهزة. الشكر مش ضروري، التحويل الجاي بكفي.",
+    "الله يسامح اللي علّمك تبعتلي روابط 😂",
+    "تم. أنا حرفيًا موظف عندك بدون راتب.",
+    "هاي كمان خلصت… ما عندك Spotify يزم؟ 😭",
+]
+
+ERROR_MESSAGES = [
+    "الرابط قرر يقاوم 💀",
+    "هذا الرابط بيني وبينه مشاكل شخصية.",
+    "حتى أنا عندي حدود يزم، هات رابط ثاني 😭",
+    "الرابط مات قبل وصوله إلى المستشفى.",
+    "فشلت العملية… أهل الفيديو رفضوا التبرع بالصوت.",
+    "يا الرابط خربان، يا أنا بحاجة إجازة. جرّب واحد ثاني 😂",
+]
+
+
 def owner_only(update: Update) -> bool:
     if OWNER_TELEGRAM_ID is None:
         return True
-    return bool(update.effective_user and update.effective_user.id == OWNER_TELEGRAM_ID)
+    return bool(
+        update.effective_user
+        and update.effective_user.id == OWNER_TELEGRAM_ID
+    )
 
 
 def extract_url(text: str):
@@ -29,18 +78,23 @@ def extract_url(text: str):
 
 
 def download_mp3(url: str, workdir: Path) -> Path:
-    outtmpl = str(workdir / "%(title).120s [%(id)s].%(ext)s")
+    outtmpl = str(
+        workdir / "%(title).120s [%(id)s].%(ext)s"
+    )
+
     opts = {
         "format": "bestaudio/best",
         "outtmpl": outtmpl,
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }],
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }
+        ],
     }
 
     with yt_dlp.YoutubeDL(opts) as ydl:
@@ -50,77 +104,149 @@ def download_mp3(url: str, workdir: Path) -> Path:
 
     if not mp3_path.exists():
         candidates = list(workdir.glob("*.mp3"))
+
         if not candidates:
-            raise FileNotFoundError("لم يتم العثور على ملف MP3 بعد التحويل.")
+            raise FileNotFoundError(
+                "لم يتم العثور على ملف MP3 بعد التحويل."
+            )
+
         mp3_path = candidates[0]
 
     return mp3_path
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     if not owner_only(update):
-        await update.message.reply_text("هذا البوت خاص.")
+        await update.message.reply_text("هذا البوت خاص 😎")
         return
 
     await update.message.reply_text(
-        "جاهز 🎧\n\n"
-        "أرسل رابط فيديو، وأنا أحوّله إلى MP3 وأرجعه لك هنا."
+        "شبيك لبيك، صبحي الروبوت بين إيديك 🧞‍♂️🎧\n\n"
+        "إيش بدنا ننزّل اليوم؟ أغاني؟ 👀\n"
+        "ارمي الرابط وخلّي الباقي عليّ."
     )
 
 
-async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Telegram ID: {update.effective_user.id}")
+async def myid(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    await update.message.reply_text(
+        f"Telegram ID: {update.effective_user.id}"
+    )
 
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     if not owner_only(update):
-        await update.message.reply_text("هذا البوت خاص.")
+        await update.message.reply_text("هذا البوت خاص 😎")
         return
 
     url = extract_url(update.message.text or "")
+
     if not url:
-        await update.message.reply_text("أرسل رابط فيديو صالح.")
+        await update.message.reply_text(
+            "وين الرابط يا زعيم؟ 😭\n"
+            "ارمي رابط فيديو وخليني أشتغل."
+        )
         return
 
-    status = await update.message.reply_text("جاري استخراج الصوت وتحويله إلى MP3…")
+    status = await update.message.reply_text(
+        random.choice(WORKING_MESSAGES)
+    )
 
     try:
-        with tempfile.TemporaryDirectory(prefix="tg_mp3_") as td:
+        with tempfile.TemporaryDirectory(
+            prefix="tg_mp3_"
+        ) as td:
             workdir = Path(td)
-            mp3 = await asyncio.to_thread(download_mp3, url, workdir)
 
-            size_mb = mp3.stat().st_size / (1024 * 1024)
+            mp3 = await asyncio.to_thread(
+                download_mp3,
+                url,
+                workdir,
+            )
+
+            size_mb = mp3.stat().st_size / (
+                1024 * 1024
+            )
+
             if size_mb > 49:
                 await status.edit_text(
-                    f"الملف الناتج حجمه حوالي {size_mb:.1f}MB وهو أكبر من حد الإرسال العملي الحالي للبوت."
+                    f"يا ساتر 😭 الملف طلع {size_mb:.1f}MB.\n"
+                    "أكبر من اللي بقدر أبعثه حاليًا."
                 )
                 return
 
-            await status.edit_text("تم التحويل، جاري رفع الملف…")
+            await status.edit_text(
+                "خلصنا التشريح 🫡\n"
+                "هسا برفعلك الـMP3…"
+            )
+
             with mp3.open("rb") as audio:
                 await update.message.reply_audio(
                     audio=audio,
                     title=mp3.stem[:64],
-                    caption="MP3 جاهز 🎧",
+                    caption="تفضل يا فنان 🎧",
                 )
 
         await status.delete()
 
+        # الرد العشوائي بعد كل تحويل ناجح
+        await update.message.reply_text(
+            random.choice(SUCCESS_MESSAGES)
+        )
+
+        # مفاجأة نادرة 😂
+        if random.random() < 0.05:
+            await update.message.reply_text(
+                "بالمناسبة… كم أغنية ناوي تنزّل؟ "
+                "أنا بس بسأل لأسباب نقابية."
+            )
+
     except Exception as e:
-        await status.edit_text(f"تعذر التحويل:\n{type(e).__name__}: {e}")
+        funny_error = random.choice(ERROR_MESSAGES)
+
+        await status.edit_text(
+            f"{funny_error}\n\n"
+            f"المشكلة التقنية: {type(e).__name__}"
+        )
 
 
 def main():
     if shutil.which("ffmpeg") is None:
-        raise RuntimeError("FFmpeg غير مثبت على الخادم.")
+        raise RuntimeError(
+            "FFmpeg غير مثبت على الخادم."
+        )
 
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("myid", myid))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app = Application.builder().token(
+        BOT_TOKEN
+    ).build()
 
-    print("Telegram MP3 bot is running...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.add_handler(
+        CommandHandler("start", start)
+    )
+
+    app.add_handler(
+        CommandHandler("myid", myid)
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_text,
+        )
+    )
+
+    print("صبحي الروبوت شغّال 😎")
+    app.run_polling(
+        allowed_updates=Update.ALL_TYPES
+    )
 
 
 if __name__ == "__main__":
