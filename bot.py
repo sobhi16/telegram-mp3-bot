@@ -17,7 +17,13 @@ from telegram.ext import (
 )
 import yt_dlp
 
+
 load_dotenv()
+
+
+# =========================
+# إعدادات البوت
+# =========================
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
@@ -28,12 +34,16 @@ OWNER_TELEGRAM_ID = (
     else None
 )
 
-# عنوان PO Token Provider الموجود على Railway
+# عنوان خدمة PO Token Provider على Railway
 POT_PROVIDER_URL = os.getenv(
     "YTDLP_POT_PROVIDER_URL",
     "http://bgutil-ytdlp-pot-provider.railway.internal:4416",
 )
 
+
+# =========================
+# رسائل صبحي الروبوت 😂
+# =========================
 
 WORKING_MESSAGES = [
     "ثواني… قاعد أعصر الفيديو عشان أطلعلك الصوت 😭",
@@ -45,6 +55,7 @@ WORKING_MESSAGES = [
     "ثواني بس، السيرفر عنده مشاعر برضو.",
     "بفكك الفيديو قطعة قطعة… هو تحت التخدير.",
 ]
+
 
 SUCCESS_MESSAGES = [
     "في كمان أغاني؟ 👀",
@@ -64,6 +75,7 @@ SUCCESS_MESSAGES = [
     "هاي كمان خلصت… ما عندك Spotify يزم؟ 😭",
 ]
 
+
 ERROR_MESSAGES = [
     "الرابط قرر يقاوم 💀",
     "هذا الرابط بيني وبينه مشاكل شخصية.",
@@ -73,6 +85,10 @@ ERROR_MESSAGES = [
     "يا الرابط خربان، يا أنا بحاجة إجازة. جرّب واحد ثاني 😂",
 ]
 
+
+# =========================
+# أدوات مساعدة
+# =========================
 
 def owner_only(update: Update) -> bool:
     if OWNER_TELEGRAM_ID is None:
@@ -85,9 +101,17 @@ def owner_only(update: Update) -> bool:
 
 
 def extract_url(text: str):
-    m = re.search(r"https?://\S+", text or "")
-    return m.group(0).rstrip(").,]}>") if m else None
+    match = re.search(r"https?://\S+", text or "")
 
+    if not match:
+        return None
+
+    return match.group(0).rstrip(").,]}>")
+
+
+# =========================
+# تنزيل وتحويل MP3
+# =========================
 
 def download_mp3(url: str, workdir: Path) -> Path:
 
@@ -96,21 +120,61 @@ def download_mp3(url: str, workdir: Path) -> Path:
     )
 
     opts = {
-        "format": "bestaudio/best",
-        "outtmpl": outtmpl,
-        "noplaylist": True,
-        "quiet": True,
-        "no_warnings": True,
 
-        # YouTube + PO Token Provider
+        # أفضل صوت متوفر
+        "format": "bestaudio/best",
+
+        "outtmpl": outtmpl,
+
+        # لا نريد Playlist كاملة بالغلط 😂
+        "noplaylist": True,
+
+        "quiet": True,
+
+        # خليه يظهر تحذيرات مهمة في Railway
+        "no_warnings": False,
+
+        # =====================
+        # YouTube + PO Token
+        # =====================
+
         "extractor_args": {
+
             "youtube": {
-                "player_client": ["mweb"],
+
+                # العميل الموصى به للـPO Token
+                "player_client": [
+                    "mweb"
+                ],
+
+                # اجبر yt-dlp يطلب PO Token
+                "fetch_pot": [
+                    "always"
+                ],
+
+                # يظهر معلومات PO Token في Logs
+                "pot_trace": [
+                    "true"
+                ],
+
+                # يسمح برؤية الصيغ التي تعتمد على POT
+                "formats": [
+                    "missing_pot"
+                ],
             },
+
+            # Plugin الخاص بخدمة bgutil
             "youtubepot-bgutilhttp": {
-                "base_url": [POT_PROVIDER_URL],
+
+                "base_url": [
+                    POT_PROVIDER_URL
+                ],
             },
         },
+
+        # =====================
+        # تحويل الصوت
+        # =====================
 
         "postprocessors": [
             {
@@ -128,12 +192,15 @@ def download_mp3(url: str, workdir: Path) -> Path:
             download=True,
         )
 
-        prepared = Path(
+        original_file = Path(
             ydl.prepare_filename(info)
         )
 
-        mp3_path = prepared.with_suffix(".mp3")
+        mp3_path = original_file.with_suffix(
+            ".mp3"
+        )
 
+    # احتياط إذا اسم الملف تغيّر بعد FFmpeg
     if not mp3_path.exists():
 
         candidates = list(
@@ -141,6 +208,7 @@ def download_mp3(url: str, workdir: Path) -> Path:
         )
 
         if not candidates:
+
             raise FileNotFoundError(
                 "لم يتم العثور على ملف MP3 بعد التحويل."
             )
@@ -149,6 +217,10 @@ def download_mp3(url: str, workdir: Path) -> Path:
 
     return mp3_path
 
+
+# =========================
+# /start
+# =========================
 
 async def start(
     update: Update,
@@ -160,6 +232,7 @@ async def start(
         await update.message.reply_text(
             "هذا البوت خاص 😎"
         )
+
         return
 
     await update.message.reply_text(
@@ -168,6 +241,10 @@ async def start(
         "ارمي الرابط وخلّي الباقي عليّ."
     )
 
+
+# =========================
+# /myid
+# =========================
 
 async def myid(
     update: Update,
@@ -179,6 +256,10 @@ async def myid(
     )
 
 
+# =========================
+# استقبال الرابط
+# =========================
+
 async def handle_text(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -189,6 +270,7 @@ async def handle_text(
         await update.message.reply_text(
             "هذا البوت خاص 😎"
         )
+
         return
 
     url = extract_url(
@@ -201,11 +283,16 @@ async def handle_text(
             "وين الرابط يا زعيم؟ 😭\n"
             "ارمي رابط فيديو وخليني أشتغل."
         )
+
         return
 
+
     status = await update.message.reply_text(
-        random.choice(WORKING_MESSAGES)
+        random.choice(
+            WORKING_MESSAGES
+        )
     )
+
 
     try:
 
@@ -221,10 +308,12 @@ async def handle_text(
                 workdir,
             )
 
+
             size_mb = (
                 mp3.stat().st_size
                 / (1024 * 1024)
             )
+
 
             if size_mb > 49:
 
@@ -232,35 +321,48 @@ async def handle_text(
                     f"يا ساتر 😭 الملف طلع {size_mb:.1f}MB.\n"
                     "أكبر من اللي بقدر أبعثه حاليًا."
                 )
+
                 return
+
 
             await status.edit_text(
                 "خلصنا التشريح 🫡\n"
                 "هسا برفعلك الـMP3…"
             )
 
+
             with mp3.open("rb") as audio:
 
                 await update.message.reply_audio(
+
                     audio=audio,
+
                     title=mp3.stem[:64],
+
                     caption="تفضل يا فنان 🎧",
                 )
 
+
+        # نمسح رسالة جاري التحويل
         await status.delete()
 
-        # رد عشوائي بعد كل أغنية
+
+        # رد مضحك عشوائي
         await update.message.reply_text(
-            random.choice(SUCCESS_MESSAGES)
+            random.choice(
+                SUCCESS_MESSAGES
+            )
         )
 
-        # مفاجأة نادرة 😂
+
+        # 5% احتمال يطلع الرد النقابي 😂
         if random.random() < 0.05:
 
             await update.message.reply_text(
                 "بالمناسبة… كم أغنية ناوي تنزّل؟ "
                 "أنا بس بسأل لأسباب نقابية."
             )
+
 
     except Exception as e:
 
@@ -270,9 +372,14 @@ async def handle_text(
 
         await status.edit_text(
             f"{funny_error}\n\n"
-            f"المشكلة التقنية: {type(e).__name__}"
+            f"المشكلة التقنية: "
+            f"{type(e).__name__}"
         )
 
+
+# =========================
+# تشغيل البوت
+# =========================
 
 def main():
 
@@ -282,11 +389,13 @@ def main():
             "FFmpeg غير مثبت على الخادم."
         )
 
+
     app = (
         Application.builder()
         .token(BOT_TOKEN)
         .build()
     )
+
 
     app.add_handler(
         CommandHandler(
@@ -295,6 +404,7 @@ def main():
         )
     )
 
+
     app.add_handler(
         CommandHandler(
             "myid",
@@ -302,17 +412,28 @@ def main():
         )
     )
 
+
     app.add_handler(
         MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
+            filters.TEXT
+            & ~filters.COMMAND,
             handle_text,
         )
     )
 
-    print("صبحي الروبوت شغّال 😎")
+
+    print(
+        "صبحي الروبوت شغّال 😎"
+    )
+
+    print(
+        f"PO Provider: {POT_PROVIDER_URL}"
+    )
+
 
     app.run_polling(
-        allowed_updates=Update.ALL_TYPES
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
     )
 
 
