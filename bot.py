@@ -1,29 +1,22 @@
 import asyncio
 import os
-import re
-import shutil
-import tempfile
 import random
+import re
+import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
+from playwright.sync_api import sync_playwright
 from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
-    MessageHandler,
     ContextTypes,
+    MessageHandler,
     filters,
 )
-import yt_dlp
-
 
 load_dotenv()
-
-
-# =========================
-# إعدادات البوت
-# =========================
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
@@ -34,61 +27,47 @@ OWNER_TELEGRAM_ID = (
     else None
 )
 
-# عنوان خدمة PO Token Provider على Railway
-POT_PROVIDER_URL = os.getenv(
-    "YTDLP_POT_PROVIDER_URL",
-    "http://bgutil-ytdlp-pot-provider.railway.internal:4416",
-)
+Y2MATE_URL = "https://y2mate.gs"
 
-
-# =========================
-# رسائل صبحي الروبوت 😂
-# =========================
 
 WORKING_MESSAGES = [
     "ثواني… قاعد أعصر الفيديو عشان أطلعلك الصوت 😭",
     "اصبر عليّ، مش شايفني بشتغل؟ 😂",
     "جاري ارتكاب بعض الأمور التقنية… 🧑‍💻",
     "دخل الرابط غرفة العمليات 🏥",
-    "استنى… الـFFmpeg قاعد يسخن 😂",
+    "ثواني… صبحي الروبوت بلّش المناوبة.",
     "جاري تحويل ذوقك الموسيقي إلى ملف قابل للحفظ 🎧",
     "ثواني بس، السيرفر عنده مشاعر برضو.",
     "بفكك الفيديو قطعة قطعة… هو تحت التخدير.",
 ]
-
 
 SUCCESS_MESSAGES = [
     "في كمان أغاني؟ 👀",
     "خلصت هاي، هات المصيبة اللي بعدها 😂",
     "تم يا زعيم. مين الضحية الجاية؟",
     "هات اللي بعدها… واضح السهرة مطوّلة 🎧",
-    "MP3 جاهز. رأيي بالأغنية احتفظت فيه لنفسي احترامًا لمشاعرك.",
+    "رأيي بالأغنية احتفظت فيه لنفسي احترامًا لمشاعرك.",
     "خلصت. لا تقلي عندك Playlist كاملة 💀",
-    "تمت المهمة بنجاح. إنجاز آخر يُحسب للحضارة البشرية.",
+    "إنجاز آخر يُحسب للحضارة البشرية.",
     "هات رابط ثاني، السيرفر دافع حقه.",
     "واحدة راحت… كم باقي عندك يا طمّاع؟ 😭",
-    "تم 🫡 صبحي الروبوت لا يسأل لماذا، صبحي الروبوت ينفّذ.",
+    "صبحي الروبوت لا يسأل لماذا، صبحي الروبوت ينفّذ 🫡",
     "خلصت يا DJ، شو التالية؟",
-    "جاهزة. الشكر مش ضروري، التحويل الجاي بكفي.",
+    "الشكر مش ضروري، التحويل الجاي بكفي.",
     "الله يسامح اللي علّمك تبعتلي روابط 😂",
-    "تم. أنا حرفيًا موظف عندك بدون راتب.",
+    "أنا حرفيًا موظف عندك بدون راتب.",
     "هاي كمان خلصت… ما عندك Spotify يزم؟ 😭",
 ]
-
 
 ERROR_MESSAGES = [
     "الرابط قرر يقاوم 💀",
     "هذا الرابط بيني وبينه مشاكل شخصية.",
-    "حتى أنا عندي حدود يزم، هات رابط ثاني 😭",
+    "حتى أنا عندي حدود يزم 😭",
     "الرابط مات قبل وصوله إلى المستشفى.",
     "فشلت العملية… أهل الفيديو رفضوا التبرع بالصوت.",
-    "يا الرابط خربان، يا أنا بحاجة إجازة. جرّب واحد ثاني 😂",
+    "يا الرابط خربان، يا أنا بحاجة إجازة 😂",
 ]
 
-
-# =========================
-# أدوات مساعدة
-# =========================
 
 def owner_only(update: Update) -> bool:
     if OWNER_TELEGRAM_ID is None:
@@ -109,118 +88,117 @@ def extract_url(text: str):
     return match.group(0).rstrip(").,]}>")
 
 
-# =========================
-# تنزيل وتحويل MP3
-# =========================
+def convert_with_y2mate(video_url: str, workdir: Path) -> Path:
 
-def download_mp3(url: str, workdir: Path) -> Path:
+    with sync_playwright() as p:
 
-    outtmpl = str(
-        workdir / "%(title).120s [%(id)s].%(ext)s"
-    )
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        )
 
-    opts = {
-
-        # أفضل صوت متوفر
-        "format": "bestaudio/best",
-
-        "outtmpl": outtmpl,
-
-        # لا نريد Playlist كاملة بالغلط 😂
-        "noplaylist": True,
-
-        "quiet": True,
-
-        # خليه يظهر تحذيرات مهمة في Railway
-        "no_warnings": False,
-
-        # =====================
-        # YouTube + PO Token
-        # =====================
-
-        "extractor_args": {
-
-            "youtube": {
-
-                # العميل الموصى به للـPO Token
-                "player_client": [
-                    "mweb"
-                ],
-
-                # اجبر yt-dlp يطلب PO Token
-                "fetch_pot": [
-                    "always"
-                ],
-
-                # يظهر معلومات PO Token في Logs
-                "pot_trace": [
-                    "true"
-                ],
-
-                # يسمح برؤية الصيغ التي تعتمد على POT
-                "formats": [
-                    "missing_pot"
-                ],
+        context = browser.new_context(
+            accept_downloads=True,
+            viewport={
+                "width": 1280,
+                "height": 900,
             },
-
-            # Plugin الخاص بخدمة bgutil
-            "youtubepot-bgutilhttp": {
-
-                "base_url": [
-                    POT_PROVIDER_URL
-                ],
-            },
-        },
-
-        # =====================
-        # تحويل الصوت
-        # =====================
-
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }
-        ],
-    }
-
-    with yt_dlp.YoutubeDL(opts) as ydl:
-
-        info = ydl.extract_info(
-            url,
-            download=True,
         )
 
-        original_file = Path(
-            ydl.prepare_filename(info)
-        )
+        page = context.new_page()
 
-        mp3_path = original_file.with_suffix(
-            ".mp3"
-        )
+        try:
 
-    # احتياط إذا اسم الملف تغيّر بعد FFmpeg
-    if not mp3_path.exists():
-
-        candidates = list(
-            workdir.glob("*.mp3")
-        )
-
-        if not candidates:
-
-            raise FileNotFoundError(
-                "لم يتم العثور على ملف MP3 بعد التحويل."
+            # افتح Y2Mate
+            page.goto(
+                Y2MATE_URL,
+                wait_until="domcontentloaded",
+                timeout=60000,
             )
 
-        mp3_path = candidates[0]
+            # خانة رابط YouTube
+            textbox = page.get_by_role("textbox").first
 
-    return mp3_path
+            textbox.wait_for(
+                state="visible",
+                timeout=30000,
+            )
 
+            textbox.fill(video_url)
 
-# =========================
-# /start
-# =========================
+            # اختر MP3
+            mp3_button = page.get_by_role(
+                "button",
+                name="MP3",
+                exact=True,
+            )
+
+            if mp3_button.count() > 0:
+                mp3_button.first.click()
+
+            # Convert
+            convert_button = page.get_by_role(
+                "button",
+                name="Convert",
+                exact=True,
+            )
+
+            convert_button.click()
+
+            # التحويل قد يأخذ وقت
+            page.wait_for_timeout(2000)
+
+            # انتظر Download
+            download_element = page.get_by_text(
+                "Download",
+                exact=True,
+            )
+
+            download_element.wait_for(
+                state="visible",
+                timeout=180000,
+            )
+
+            # اضغط وانتظر تنزيل الملف
+            with page.expect_download(
+                timeout=180000
+            ) as download_info:
+
+                download_element.first.click()
+
+            download = download_info.value
+
+            suggested_name = (
+                download.suggested_filename
+                or "sobhi-download.mp3"
+            )
+
+            # تأكد أنه ينتهي بـ mp3
+            if not suggested_name.lower().endswith(".mp3"):
+                suggested_name += ".mp3"
+
+            destination = (
+                workdir / suggested_name
+            )
+
+            download.save_as(
+                str(destination)
+            )
+
+            if not destination.exists():
+                raise RuntimeError(
+                    "Y2Mate ما رجّع الملف."
+                )
+
+            return destination
+
+        finally:
+            context.close()
+            browser.close()
+
 
 async def start(
     update: Update,
@@ -232,7 +210,6 @@ async def start(
         await update.message.reply_text(
             "هذا البوت خاص 😎"
         )
-
         return
 
     await update.message.reply_text(
@@ -241,10 +218,6 @@ async def start(
         "ارمي الرابط وخلّي الباقي عليّ."
     )
 
-
-# =========================
-# /myid
-# =========================
 
 async def myid(
     update: Update,
@@ -256,10 +229,6 @@ async def myid(
     )
 
 
-# =========================
-# استقبال الرابط
-# =========================
-
 async def handle_text(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -270,7 +239,6 @@ async def handle_text(
         await update.message.reply_text(
             "هذا البوت خاص 😎"
         )
-
         return
 
     url = extract_url(
@@ -283,79 +251,63 @@ async def handle_text(
             "وين الرابط يا زعيم؟ 😭\n"
             "ارمي رابط فيديو وخليني أشتغل."
         )
-
         return
 
-
     status = await update.message.reply_text(
-        random.choice(
-            WORKING_MESSAGES
-        )
+        random.choice(WORKING_MESSAGES)
     )
-
 
     try:
 
         with tempfile.TemporaryDirectory(
-            prefix="tg_mp3_"
+            prefix="sobhi_mp3_"
         ) as td:
 
             workdir = Path(td)
 
             mp3 = await asyncio.to_thread(
-                download_mp3,
+                convert_with_y2mate,
                 url,
                 workdir,
             )
 
-
             size_mb = (
                 mp3.stat().st_size
-                / (1024 * 1024)
+                / 1024
+                / 1024
             )
-
 
             if size_mb > 49:
 
                 await status.edit_text(
-                    f"يا ساتر 😭 الملف طلع {size_mb:.1f}MB.\n"
-                    "أكبر من اللي بقدر أبعثه حاليًا."
+                    f"يا ساتر 😭 الملف طلع "
+                    f"{size_mb:.1f}MB.\n"
+                    "أكبر من حد الإرسال الحالي."
                 )
-
                 return
-
 
             await status.edit_text(
                 "خلصنا التشريح 🫡\n"
                 "هسا برفعلك الـMP3…"
             )
 
-
             with mp3.open("rb") as audio:
 
                 await update.message.reply_audio(
-
                     audio=audio,
-
                     title=mp3.stem[:64],
-
                     caption="تفضل يا فنان 🎧",
                 )
 
-
-        # نمسح رسالة جاري التحويل
         await status.delete()
 
-
-        # رد مضحك عشوائي
         await update.message.reply_text(
             random.choice(
                 SUCCESS_MESSAGES
             )
         )
 
-
-        # 5% احتمال يطلع الرد النقابي 😂
+        # 5% احتمال لرسالة نقابية 😂
         if random.random() < 0.05:
 
             await update.message.reply_text(
@@ -363,11 +315,15 @@ async def handle_text(
                 "أنا بس بسأل لأسباب نقابية."
             )
 
-
     except Exception as e:
 
         funny_error = random.choice(
             ERROR_MESSAGES
+        )
+
+        print(
+            f"Y2Mate error: "
+            f"{type(e).__name__}: {e}"
         )
 
         await status.edit_text(
@@ -377,25 +333,13 @@ async def handle_text(
         )
 
 
-# =========================
-# تشغيل البوت
-# =========================
-
 def main():
-
-    if shutil.which("ffmpeg") is None:
-
-        raise RuntimeError(
-            "FFmpeg غير مثبت على الخادم."
-        )
-
 
     app = (
         Application.builder()
         .token(BOT_TOKEN)
         .build()
     )
-
 
     app.add_handler(
         CommandHandler(
@@ -404,14 +348,12 @@ def main():
         )
     )
 
-
     app.add_handler(
         CommandHandler(
             "myid",
             myid,
         )
     )
-
 
     app.add_handler(
         MessageHandler(
@@ -421,15 +363,9 @@ def main():
         )
     )
 
-
     print(
-        "صبحي الروبوت شغّال 😎"
+        "صبحي الروبوت شغّال — Y2Mate mode 😎"
     )
-
-    print(
-        f"PO Provider: {POT_PROVIDER_URL}"
-    )
-
 
     app.run_polling(
         allowed_updates=Update.ALL_TYPES,
